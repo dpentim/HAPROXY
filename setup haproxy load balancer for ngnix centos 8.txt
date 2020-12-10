@@ -1,0 +1,173 @@
+How to setup HAProxy as Load Balancer for Nginx on CentOS 7 
+
+
+
+HAProxy or High Availability Proxy is an open source TCP and HTTP load balancer and proxy server software. HAProxy has been written by Willy Tarreau in C, it supports SSL, compressions, keep-alive, custom log formats and header rewriting. HAProxy is a fast and lightweight proxy server and load balancer with a small memory footprint and low CPU usage. It is used by large sites like Github, StackOverflow, Reddit, Tumblr, Twitter and others. It has become the most popular software load balancer and proxy server in the past years. 
+
+In this tutorial, I will guide you trough the HAProxy installation and configuration for 3 servers, one load balancer, and two Nginx web servers. We will install HAProxy on a single server and then install Nginx web server on the other servers. HAProxy acts as a load balancer for the Nginx web servers. 
+
+Basic Concept with HAProxy 
+
+Layer 4 and Layer 7 
+
+HAProxy can run in two modes: TCP mode Layer 4 and HTTP Mode Layer 7. In Layer 4 TCP mode, HAProxy forwards the RAW TCP packets from the client to the application servers. In the Layer 7 HTTP mode, HAProxy is parsing the HTTP header before forwarding them to the application servers. In this tutorial, we will use Nginx as the web server that only supports the Layer 7 HTTP mode. 
+
+Balance Algorithm 
+
+This is the algorithm that is used by HAProxy to select the server when doing the load balancing. The following modes are available: 
+
+Roundrobin 
+
+This is the most simple balance algorithm. For each new connection, it will be handled by the next backend server. If the last backend server in the list is reached, it will start again from the top of backend list. 
+
+Lastconn 
+
+The new connection will be handled by the backend server with least amount of connections. This is useful when the time and load of the requests vary a lot. 
+
+Source 
+
+This is for sticky sessions, the client IP will be hashed to determine the backend server that received the last request from this IP. So an IP A will always be handled by backend1, and IP B will always be handled by banckend2 to not interrupt sessions 
+
+There are oOther algorithm - check the official HAProxy?site for details. 
+
+Prerequisites 
+
+3 CentOS 7 
+
+?? ?? ??? ??loadbalancer[Text Wrapping Break]??? ??? ??? 192.168.1.102[Text Wrapping Break][Text Wrapping Break]?? ?? ?????nginx1[Text Wrapping Break]??? ?? ? ? 192.168.1.104[Text Wrapping Break][Text Wrapping Break]??????? ??? nginx2[Text Wrapping Break]??? ??? ??? 192.168.1.105 
+
+Root privileges on all 3 servers. 
+
+Step 1 - Configure the /etc/hosts files 
+
+Log in to the load balancer server and edit the /etc/hosts file. 
+
+ssh loadbalancer@192.168.1.102[Text Wrapping Break]sudo su 
+
+vi /etc/hosts 
+
+Add nginx1 and nginx2 hostnames: 
+
+192.168.1.104??? nginx1.loadbalancer.me???? nginx1[Text Wrapping Break]192.168.1.105??? nginx2.loadbalancer.me???? nginx2 
+
+Save the file and exit the editor. 
+
+Next, edit the hosts file on the Nginx servers (nginx1 and nginx2): 
+
+ssh nginx1@192.168.1.104[Text Wrapping Break]ssh nginx2@192.168.1.105 
+
+Edit and add a new line for the load balancer in the hosts files:Advertisement 
+
+vi /etc/host 
+
+Add the loadbalancer hostname on each nginx server: 
+
+192.168.1.102??? loadbalancer 
+
+do this on nginx1 and nginx2 server. 
+
+Step 2 - Install and Configure HAProxy 
+
+HAProxy is available in the CentOS 7 repository, log in to the loadbalancer server and update the package lists:Advertisement 
+
+ssh loadbalancer@192.168.1.104[Text Wrapping Break]yum -y update 
+
+Now install HAProxy with this yum command: 
+
+yum -y install haproxy 
+
+When the installation is finished, go to the "/etc/haproxy/" directory and backup the original configuration file: 
+
+cd /etc/haproxy/[Text Wrapping Break]mv haproxy.cfg haproxy.cfg.orig 
+
+Next, add a new HAProxy configuration file "haproxy.cfg" file with the vi editor: 
+
+vi haproxy.cfg 
+
+Paste the configuration below: 
+
+#---------------------------------------------------------------------[Text Wrapping Break]# Global settings[Text Wrapping Break]#---------------------------------------------------------------------[Text Wrapping Break]global[Text Wrapping Break]??? log???????? 127.0.0.1 local2 ??? #Log configuration[Text Wrapping Break] [Text Wrapping Break]??? chroot????? /var/lib/haproxy[Text Wrapping Break]??? pidfile???? /var/run/haproxy.pid[Text Wrapping Break]??? maxconn???? 4000??? ??? ??? ??? [Text Wrapping Break]??? user??????? haproxy ??? ??? ??? #Haproxy running under user and group "haproxy"[Text Wrapping Break]??? group?????? haproxy[Text Wrapping Break]??? daemon[Text Wrapping Break] [Text Wrapping Break]??? # turn on stats unix socket[Text Wrapping Break]??? stats socket /var/lib/haproxy/stats[Text Wrapping Break] [Text Wrapping Break]#---------------------------------------------------------------------[Text Wrapping Break]# common defaults that all the 'listen' and 'backend' sections will[Text Wrapping Break]# use if not designated in their block[Text Wrapping Break]#---------------------------------------------------------------------[Text Wrapping Break]defaults[Text Wrapping Break]??? mode??????????????????? http[Text Wrapping Break]??? log???????????????????? global[Text Wrapping Break]??? option????????????????? httplog[Text Wrapping Break]??? option????????????????? dontlognull[Text Wrapping Break]??? option http-server-close[Text Wrapping Break]??? option forwardfor?????? except 127.0.0.0/8[Text Wrapping Break]??? option????????????????? redispatch[Text Wrapping Break]??? retries???????????????? 3[Text Wrapping Break]??? timeout http-request??? 10s[Text Wrapping Break]??? timeout queue?????????? 1m[Text Wrapping Break]??? timeout connect???????? 10s[Text Wrapping Break]??? timeout client????????? 1m[Text Wrapping Break]??? timeout server????????? 1m[Text Wrapping Break]??? timeout http-keep-alive 10s[Text Wrapping Break]??? timeout check?????????? 10s[Text Wrapping Break]??? maxconn???????????????? 3000[Text Wrapping Break] [Text Wrapping Break]#---------------------------------------------------------------------[Text Wrapping Break]#HAProxy Monitoring Config[Text Wrapping Break]#---------------------------------------------------------------------[Text Wrapping Break]listen haproxy3-monitoring *:8080??? ??? ??? ??? #Haproxy Monitoring run on port 8080[Text Wrapping Break]??? mode http[Text Wrapping Break]??? option forwardfor[Text Wrapping Break]??? option httpclose[Text Wrapping Break]??? stats enable[Text Wrapping Break]??? stats show-legends[Text Wrapping Break]??? stats refresh 5s[Text Wrapping Break]??? stats uri /stats ??? ??? ??? ??? ??? ??? ??? #URL for HAProxy monitoring[Text Wrapping Break]??? stats realm Haproxy\ Statistics[Text Wrapping Break]??? stats auth howtoforge:howtoforge??? ??? ??? #User and Password for login to the monitoring dashboard[Text Wrapping Break]??? stats admin if TRUE[Text Wrapping Break]??? default_backend app-main??? ??? ??? ??? ??? #This is optionally for monitoring backend[Text Wrapping Break] [Text Wrapping Break]#---------------------------------------------------------------------[Text Wrapping Break]# FrontEnd Configuration[Text Wrapping Break]#---------------------------------------------------------------------[Text Wrapping Break]frontend main[Text Wrapping Break]??? bind *:80[Text Wrapping Break]??? option http-server-close[Text Wrapping Break]??? option forwardfor[Text Wrapping Break]??? default_backend app-main[Text Wrapping Break] [Text Wrapping Break]#---------------------------------------------------------------------[Text Wrapping Break]# BackEnd roundrobin as balance algorithm[Text Wrapping Break]#---------------------------------------------------------------------[Text Wrapping Break]backend app-main[Text Wrapping Break]??? balance roundrobin ??? ??? ??? ??? ??? ??? ??? ??? ??? #Balance algorithm[Text Wrapping Break]??? option httpchk HEAD / HTTP/1.1\r\nHost:\ localhost??? #Check the server application is up and healty - 200 status code[Text Wrapping Break]??? server nginx1 192.168.1.104:80 check ??? ??? ??? ??? #Nginx1 [Text Wrapping Break]??? server nginx2 192.168.1.105:80 check ??? ??? ??? ??? #Nginx2 
+
+Save the configuration file and exit. 
+
+Next, configure rsyslog for HAProxy. 
+
+We will configure the rsyslog daemon to log the HAProxy statistics. Edit the rsyslog.conf file to enable the UDP port 514 to be used by rsyslog. 
+
+vi /etc/rsyslog.conf 
+
+Uncomment this line to enable the UDP connection: 
+
+$ModLoad imudp[Text Wrapping Break]$UDPServerRun 514 
+
+If you want to use a specific IP, you can add a new line like the one below: 
+
+$UDPServerAddress 127.0.0.1 
+
+Save the file and exit.Advertisement 
+
+Then create new haproxy configuration file for rsyslog: 
+
+cd /etc/rsyslog.d/[Text Wrapping Break]vi haproxy.conf 
+
+Paste configuration below: 
+
+local2.=info???? /var/log/haproxy-access.log??? #For Access Log[Text Wrapping Break]local2.notice??? /var/log/haproxy-info.log??? ? #For Service Info - Backend, loadbalancer 
+
+Save and exit. 
+
+Now restart rsyslog and then start the haproxy: 
+
+systemctl restart rsyslog[Text Wrapping Break]systemctl start haproxy 
+
+Add haproxy to start at boot time: 
+
+systemctl enable haproxy 
+
+Step 3 - Install and Configure Nginx 
+
+In this section, we will install Nginx from epel repository on nginx1 and nginx2 server. 
+
+Log in to the servers: 
+
+ssh nginx1@192.168.1.104[Text Wrapping Break]ssh nginx2@192.168.1.105 
+
+Install the epel repository with the yum command below: 
+
+yum -y install epel-release 
+
+Now you can install Nginx: 
+
+yum -y install nginx 
+
+Nginx is installed. Go to the web directory and change the index file so that we can see which of the two servers delivered the html file: 
+
+cd /usr/share/nginx/html/[Text Wrapping Break]echo "<h1>nginx1.loadbalance.me</h1>" > index.html???? #For nginx1 server[Text Wrapping Break]echo "<h1>nginx2.loadbalance.me</h1>" > index.html???? #For nginx2 server 
+
+Next, add Nginx to start at boot time and then start it: 
+
+systemctl enable nginx[Text Wrapping Break]systemctl start nginx 
+
+Make sure you're doing this step on nginx1 and nginx2 server. 
+
+Step 4 - Testing 
+
+Testing from browser by accessing the loadbalancer IP:?192.168.1.102 
+
+
+
+
+
+Testing with curl command: 
+
+curl 192.168.1.102 
+
+
+
+Testing to login to the HAProxy web monitoring that is running on port 8080 with username and password "howtoforge": 
+
+http://192.168.1.102:8080/stats 
+
+
+
+ 
